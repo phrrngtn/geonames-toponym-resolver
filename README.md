@@ -28,3 +28,24 @@ From the geonames docs at  https://download.geonames.org/export/dump/
 
 > hierarchy.zip		: parentId, childId, type. The type 'ADM' stands for the admin hierarchy modeled by the admin1-4 codes. The other entries are entered with the user interface.
 > The relation toponym-adm hierarchy is not included in the file, it can instead be built from the admincodes of the toponym.
+
+
+geonames data
+=============
+Here is a simplistic way of getting the data:
+
+```
+curl -O http://download.geonames.org/export/dump/hierarchy.zip
+curl -O http://download.geonames.org/export/dump/featureCodes_en.txt
+curl -O http://download.geonames.org/export/dump/allCountries.zip
+curl -O http://download.geonames.org/export/dump/alternateNamesV2.zip
+
+unzip hierarchy.zip
+unzip allCountries.zip
+unzip alternateNamesV2.zip
+```
+
+
+sqlite
+======
+This uses the `vsv`, `fts4` and `spellfix` extensions. The `load_geonames` script assumes that `fts4` is builtin and the `vsv` and `spellfix` are dynamically loadable. It may be the case that the HTTP download could be done within the script (and keeping the delimited file payloads within the database itself)
