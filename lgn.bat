@@ -3,4 +3,4 @@ rem simple DOS script to load in the geonames data into a database specified on 
 rem e.g. "lgn foo.db3" would load the geonames data (assumed to be in flat files in the current directory)
 rem into foo.db3
 
-sqlite3 -init %~dp0/load_geonames.sql %1
+sqlean -init %~dp0/load_geonames.sql %1

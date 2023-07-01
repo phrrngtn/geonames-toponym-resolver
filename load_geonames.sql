@@ -22,27 +22,33 @@
 
 
 
+-- use sqlean as the shell as it is 'batteries included' and has a bunch of useful stuff
+-- bundled directly.
 
+-- TODO: see if we can use fts5 rather than fts4... can't remember why I chose one over the other.
 
 -- This extension maps in delimited files as virtual tables. This means that you can load data
 -- using SQL, filtering/joining with other tables without having to persist the entire dataset
 -- to the database. This pattern of filtering and transforming data 'in flight' is very useful.
 ---- xref https://github.com/nalgeon/sqlean/blob/main/docs/vsv.md
-.load vsv
+--.load vsv
 
 -- see https://www.sqlite.org/spellfix1.html
+
 .load spellfix
+
 
 pragma pagesize = 32768;
 PRAGMA foreign_keys = ON;
 
 .timer ON
-.echo OFF 
+.echo OFF
 
 -- the column lists for the following virtual tables was copied from the descriptions 
 -- on http://download.geonames.org/export/dump/
 -- we map the main names collection, the hierarchy and the feature-codes enums table
-CREATE VIRTUAL TABLE all_countries_vsv USING vsv(
+CREATE VIRTUAL TABLE all_countries_vsv USING vsv
+(
     filename = "allCountries.txt",
     columns = 19,
     schema = "create table x (geonameid,name,asciiname,alternatenames,latitude,longitude,feature_class,feature_code,
@@ -50,31 +56,35 @@ CREATE VIRTUAL TABLE all_countries_vsv USING vsv(
     affinity = numeric,
     fsep = "\t"
 );
-CREATE VIRTUAL TABLE hierarchy_vsv USING vsv(
+CREATE VIRTUAL TABLE hierarchy_vsv USING vsv
+(
     filename = "hierarchy.txt",
     columns = 3,
     schema = "create table x (parent_geoname_id, child_geoname_id, hierarchy_type)",
     affinity = integer,
     fsep = "\t"
 );
-CREATE VIRTUAL TABLE featureCodes_en_vsv USING vsv(
+CREATE VIRTUAL TABLE featureCodes_en_vsv USING vsv
+(
     filename = "featureCodes_en.txt",
     columns = 3,
     schema = "create table x (feature_code, name, description)",
     affinity = numeric,
     fsep = "\t"
 );
-create table geoname_feature_code (
+create table geoname_feature_code
+(
     feature_class varchar NOT NULL,
     feature_code varchar primary key,
     name varchar not null,
     description varchar not null
 );
-insert into geoname_feature_code(
-        feature_class,
-        feature_code,
-        [name],
-        [description]
+insert into geoname_feature_code
+    (
+    feature_class,
+    feature_code,
+    [name],
+    [description]
     )
 select SUBSTRING(feature_code, 1, 1) as feature_class,
     SUBSTRING(feature_code, 3, LENGTH(feature_code) -2) as feature_code,
@@ -82,7 +92,8 @@ select SUBSTRING(feature_code, 1, 1) as feature_class,
     [description]
 FROM featureCodes_en_vsv
 where feature_code <> 'null';
-CREATE TABLE geoname_adm (
+CREATE TABLE geoname_adm
+(
     geoname_id integer primary key,
     name geoname not null,
     ascii_name geoname null,
@@ -104,26 +115,28 @@ CREATE INDEX ix_feature_code on geoname_adm(feature_code);
 CREATE INDEX ix_modification_date ON geoname_adm(modification_date);
 -- not sure what the PK is on this table. 
 -- we do not have any FK as we don't have a full geonames table
-CREATE TABLE geoname_hierarchy(
+CREATE TABLE geoname_hierarchy
+(
     parent_geoname_id integer NOT NULL,
     child_geoname_id int NOT NULL,
     hierarchy_type varchar not null
 );
-INSERT INTO geoname_adm(
-        geoname_id,
-        [name],
-        ascii_name,
-        latitude,
-        longitude,
-        feature_class,
-        feature_code,
-        country_code,
-        admin1_code,
-        admin2_code,
-        admin3_code,
-        admin4_code,
-        population,
-        modification_date
+INSERT INTO geoname_adm
+    (
+    geoname_id,
+    [name],
+    ascii_name,
+    latitude,
+    longitude,
+    feature_class,
+    feature_code,
+    country_code,
+    admin1_code,
+    admin2_code,
+    admin3_code,
+    admin4_code,
+    population,
+    modification_date
     )
 select geonameid as geoname_id,
     [name],
@@ -147,7 +160,8 @@ update geoname_adm
 set ascii_name = NULL
 where ascii_name = name;
 
-CREATE VIRTUAL TABLE geoname_alternate_name_vsv USING vsv(
+CREATE VIRTUAL TABLE geoname_alternate_name_vsv USING vsv
+(
     filename = "alternateNamesV2.txt",
     columns = 10,
     schema = "create table x (alternateNameId, geonameid, isolanguage,alternate_name,isPreferredName,
@@ -155,29 +169,40 @@ CREATE VIRTUAL TABLE geoname_alternate_name_vsv USING vsv(
     affinity = numeric,
     fsep = "\t"
 );
-CREATE TABLE geoname_alternate_name(
-    alternate_name_id int primary key,    --    : the id of this alternate name, int
+CREATE TABLE geoname_alternate_name
+(
+    alternate_name_id int primary key,
+    --    : the id of this alternate name, int
     geoname_id int NOT NULL,--  : geonameId referring to id in table 'geoname', int
-    iso_language varchar,    -- : iso 639 language code 2- or 3-characters; 4-characters 'post' for postal codes and 'iata','icao' and faac for airport codes, fr_1793 for French Revolution names,  abbr for abbreviation, link to a website (mostly to wikipedia), wkdt for the wikidataid, varchar(7)
-    alternate_name varchar(400) NOT NULL,    --: alternate name or name variant, varchar(400)
-    is_preferred_name varchar,    -- : '1', if this alternate name is an official/preferred name
-    is_short_name varchar,  --   : '1', if this is a short name like 'California' for 'State of California'
-    is_colloquial varchar,  --   : '1', if this alternate name is a colloquial or slang term. Example: 'Big Apple' for 'New York'.
-    is_historic varchar,    --   : '1', if this alternate name is historic and was used in the past. Example 'Bombay' for 'Mumbai'.
-    from_date date,         -- 	 : from period when the name was used
-    to_date date            -- 	 : to period when the name was used
+    iso_language varchar,
+    -- : iso 639 language code 2- or 3-characters; 4-characters 'post' for postal codes and 'iata','icao' and faac for airport codes, fr_1793 for French Revolution names,  abbr for abbreviation, link to a website (mostly to wikipedia), wkdt for the wikidataid, varchar(7)
+    alternate_name varchar(400) NOT NULL,
+    --: alternate name or name variant, varchar(400)
+    is_preferred_name varchar,
+    -- : '1', if this alternate name is an official/preferred name
+    is_short_name varchar,
+    --   : '1', if this is a short name like 'California' for 'State of California'
+    is_colloquial varchar,
+    --   : '1', if this alternate name is a colloquial or slang term. Example: 'Big Apple' for 'New York'.
+    is_historic varchar,
+    --   : '1', if this alternate name is historic and was used in the past. Example 'Bombay' for 'Mumbai'.
+    from_date date,
+    -- 	 : from period when the name was used
+    to_date date
+    -- 	 : to period when the name was used
 );
-INSERT INTO geoname_alternate_name(
-        alternate_name_id,
-        geoname_id,
-        iso_language,
-        alternate_name,
-        is_preferred_name,
-        is_short_name,
-        is_colloquial,
-        is_historic,
-        from_date,
-        to_date
+INSERT INTO geoname_alternate_name
+    (
+    alternate_name_id,
+    geoname_id,
+    iso_language,
+    alternate_name,
+    is_preferred_name,
+    is_short_name,
+    is_colloquial,
+    is_historic,
+    from_date,
+    to_date
     )
 select alternateNameId as alternate_name_id,
     geonameid as geoname_id,
@@ -196,37 +221,59 @@ create index ix_geoname_id on geoname_alternate_name(geoname_id);
 create index ix_alternate_name on geoname_alternate_name(alternate_name);
 -- spellfix
 -- fts
-/*
- 
- CREATE VIRTUAL TABLE geoname_fts 
- USING fts5(name, content='geoname_adm', content_rowid='geonameid');
- 
- insert into geoname_fts(rowid, name) SELECT geonameid, name FROM geoname_adm;
- 
- select fts.rowid, fts.name, fts.*, g.* 
+
+ CREATE VIRTUAL TABLE geoname_fts  USING fts5(name, geoname_id UNINDEXED, feature_code UNINDEXED, country_code UNINDEXED);
+
+ insert into geoname_fts(geoname_id, name, feature_code, country_code)
+SELECT geoname_id, COALESCE(ascii_name,name) as name, feature_code, country_code
+ FROM geoname_adm;
+
+
+ insert into geoname_fts(geoname_id, name, feature_code, country_code)
+ SELECT DISTINCT geoname_id, admin1_code as name,feature_code, country_code
+ FROM geoname_adm
+ WHERE admin1_code IS NOT NULL;
+
+ insert into geoname_fts(geoname_id, name, feature_code, country_code)
+ SELECT DISTINCT geoname_id, admin2_code,feature_code, country_code
+ FROM geoname_adm
+ WHERE admin2_code IS NOT NULL;
+
+
+ insert into geoname_fts(geoname_id, name, feature_code, country_code)
+ SELECT DISTINCT geoname_id, admin3_code, feature_code, country_code
+ FROM geoname_adm
+ WHERE admin3_code IS NOT NULL;
+
+ INSERT INTO geoname_fts(geoname_id, name) select geoname_id, alternate_name FROM geoname_alternate_name;
+
+ select fts.geoname_id, fts.name, fts.*, g.*
  from geoname_fts as fts 
  JOIN geoname_adm as g 
- ON (fts.rowid=g.geonameid)
+ ON (fts.geoname_id=g.geoname_id)
  where fts.name match 'roscommon' 
- and g.country_code = 'IE';
- */
-/*
- select nums.n, d.* 
+ and fts.country_code = 'IE';
+
+
+ /*select nums.n, d.*
  FROM nums 
  CROSS JOIN 
  geoname_adm_dictionary as d
  ON (nums.n< 3) 
  WHERE  d.word match 'washington' 
  and d.langid=nums.n;
- */
-create virtual table geoname_fts4 using fts4(geoname_id int, name text, country_code text);
-insert into geoname_fts4(geoname_id, name, country_code)
+
+create virtual table geoname_fts4 using fts4
+(geoname_id int, name text, country_code text);
+insert into geoname_fts4
+    (geoname_id, name, country_code)
 SELECT geoname_id,
     name,
     country_code
 FROM geoname_adm;
 
-insert into geoname_fts4(geoname_id, name, country_code)
+insert into geoname_fts4
+    (geoname_id, name, country_code)
 SELECT a.geoname_id,
     gan.alternate_name,
     a.country_code
@@ -236,43 +283,60 @@ FROM geoname_alternate_name as gan
 select *
 FROM geoname_fts4 as fts
     JOIN geoname_adm as a
-     ON (fts.geoname_id = a.geoname_id)
-where fts.name match 'sligo'
+    ON (fts.geoname_id = a.geoname_id)
+where fts.name
+match 'sligo'
     and a.country_code = 'IE';
 
+*/
 
-CREATE VIRTUAL TABLE geoname_fts4_terms USING fts4aux(geoname_fts4);
-CREATE VIRTUAL TABLE geoname_fts4_spellfix USING spellfix1;
-insert into geoname_fts4_spellfix(word)
-select term
-from geoname_fts4_terms
-where col = '*';
+CREATE VIRTUAL TABLE geoname_fts_vocab USING fts5vocab(geoname_fts, row);
 
-WITH T AS (
-    select word
-    FROM geoname_fts4_spellfix
-    where word match 'roscommon'
+CREATE VIRTUAL TABLE geoname_fts_spellfix USING spellfix1;
+insert into geoname_fts_spellfix
+    (word)
+select distinct term
+from geoname_fts_vocab;
+
+WITH
+    T
+    AS
+    (
+        select word
+        FROM geoname_fts_spellfix
+        where word
+     match 'roscommon'
         and top = 5
 )
 SELECT *
-FROM geoname_fts4 as fts
+FROM geoname_fts as fts
     JOIN geoname_adm as a ON (a.geoname_id = fts.geoname_id),
     T
-where fts.name match T.word;
+where fts.name
+match T.word;
 
 
-WITH T AS (select word FROM geoname_fts4_spellfix
- where word match 'vienna' and top=5
- ), 
- T1 AS (
+WITH
+    T
+    AS
+    (
+        select word
+        FROM geoname_fts_spellfix
+        where word
+     match 'vienna' and top=5
+ ),
+ T1 AS
+(
      SELECT *
-      FROM geoname_fts4 as fts
-      JOIN geoname_adm as a
-      ON (a.geoname_id = fts.geoname_id
-      ), T 
-    where fts.name match T.word and fts.country_code = 'AT'
+FROM geoname_fts as fts
+    JOIN geoname_adm as a
+    ON (a.geoname_id = fts.geoname_id),
+     T
+where fts.name
+match T.word and a.country_code = 'AT'
     )
-SELECT * FROM T1;
+SELECT *
+FROM T1;
 VACUUM;
 
 -- now that the geonames data is in place, it is time to bring in the spatial boundaries
