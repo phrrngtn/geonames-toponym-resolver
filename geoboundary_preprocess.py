@@ -25,6 +25,9 @@ def convert_zipped_shapefile_to_geopandas(zipped_shapefile):
 # geoBoundariesCGAZ_ADM1.zip
 #
 
+# maybe get this to generate convex hulls of the MultiPolygons to use as
+# an approximate filter.
+
 # this runs pretty slowly. not sure where the bottleneck is.
 # https://stackoverflow.com/a/68922148/40387
 gdf = convert_zipped_shapefile_to_geopandas("geoBoundariesCGAZ_ADM0.zip")
