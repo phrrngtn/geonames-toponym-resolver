@@ -40,9 +40,14 @@ curl -O http://download.geonames.org/export/dump/featureCodes_en.txt
 curl -O http://download.geonames.org/export/dump/allCountries.zip
 curl -O http://download.geonames.org/export/dump/alternateNamesV2.zip
 
+# the zip archive has a single file, allCountries.txt, which is the same name as the main geonames file
+curl --output postal_codes.zip http://download.geonames.org/export/zip/allCountries.zip
+unzip -p postal_codes.zip allCountries.txt > all_countries_postal_codes.txt
+
 unzip hierarchy.zip
 unzip allCountries.zip
 unzip alternateNamesV2.zip
+
 ```
 
 

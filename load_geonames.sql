@@ -47,16 +47,93 @@ PRAGMA foreign_keys = ON;
 -- the column lists for the following virtual tables was copied from the descriptions 
 -- on http://download.geonames.org/export/dump/
 -- we map the main names collection, the hierarchy and the feature-codes enums table
-CREATE VIRTUAL TABLE all_countries_vsv USING vsv
+CREATE VIRTUAL TABLE geoname_all_countries_vsv USING vsv
 (
     filename = "allCountries.txt",
     columns = 19,
     schema = "create table x (geonameid,name,asciiname,alternatenames,latitude,longitude,feature_class,feature_code,
     country_code,cc2,admin1_code,admin2_code,admin3_code,admin4_code,population,elevation,dem,timezone,modification_date)",
-    affinity = numeric,
+    affinity = none,
+    nulls=off,
     fsep = "\t"
 );
-CREATE VIRTUAL TABLE hierarchy_vsv USING vsv
+
+
+/*
+
+country code      : iso country code, 2 characters
+postal code       : varchar(20)
+place name        : varchar(180)
+admin name1       : 1. order subdivision (state) varchar(100)
+admin code1       : 1. order subdivision (state) varchar(20)
+admin name2       : 2. order subdivision (county/province) varchar(100)
+admin code2       : 2. order subdivision (county/province) varchar(20)
+admin name3       : 3. order subdivision (community) varchar(100)
+admin code3       : 3. order subdivision (community) varchar(20)
+latitude          : estimated latitude (wgs84)
+longitude         : estimated longitude (wgs84)
+accuracy          : accuracy of lat/lng from 1=estimated, 4=geonameid, 6=centroid of addresses or shape
+*/
+CREATE VIRTUAL TABLE geonames_all_countries_postal_codes_vsv USING vsv
+(
+    filename = "all_countries_postal_codes.txt", -- note this is our naming
+    columns = 12,
+    schema = "create table x (country_code,postal_code,place_name,admin_name1,admin_code1,admin_name2, admin_code2,admin_name3, admin_code3,latitude, longitude,accuracy)",
+    affinity = none, -- want to get leading zeros in zipcodes, FIPS and stuff like that.
+    nulls=off,
+    fsep = "\t"
+);
+
+
+-- TODO: add (redundant) nullable FK columns for country, admin1, admin2, admin3
+CREATE TABLE geoname_postal_code (
+    country_code varchar(2) NOT NULL,
+    postal_code varchar NOT NULL,
+    place_name varchar,
+    admin1_name, -- note that naming convention change wrt to the column names of the text file
+    admin1_code,
+    admin2_name,
+    admin2_code,
+    admin3_name,
+    admin3_code,
+    latitude FLOAT,
+    longitude FLOAT,
+    accuracy INTEGER
+    );
+
+INSERT INTO geoname_postal_code(
+        country_code,
+        postal_code,
+        place_name,
+        admin1_name,
+        admin1_code,
+        admin2_name,
+        admin2_code,
+        admin3_name,
+        admin3_code,
+        latitude,
+        longitude,
+        accuracy
+        )
+SELECT country_code,
+    postal_code,
+    place_name,
+    admin_name1 as admin1_name,
+    admin_code1 as admin1_code,
+    admin_name2 as admin2_name,
+    admin_code2 as admin2_code,
+    admin_name3 as admin3_name,
+    admin_code3 as admin3_code,
+    CAST(latitude as float) as latitude,
+    CAST(longitude as float) as longitude,
+    CAST(accuracy as integer) as accuracy
+FROM geonames_all_countries_postal_codes_vsv;
+
+
+CREATE INDEX ix_postal_code ON geoname_postal_code(postal_code);
+CREATE INDEX ix_country_code_geoname_postal_code ON geoname_postal_code(country_code);
+
+CREATE VIRTUAL TABLE geoname_hierarchy_vsv USING vsv
 (
     filename = "hierarchy.txt",
     columns = 3,
@@ -69,7 +146,7 @@ CREATE VIRTUAL TABLE featureCodes_en_vsv USING vsv
     filename = "featureCodes_en.txt",
     columns = 3,
     schema = "create table x (feature_code, name, description)",
-    affinity = numeric,
+    affinity = none,
     fsep = "\t"
 );
 create table geoname_feature_code
@@ -92,6 +169,9 @@ select SUBSTRING(feature_code, 1, 1) as feature_class,
     [description]
 FROM featureCodes_en_vsv
 where feature_code <> 'null';
+
+
+-- TODO: add nullable FK to parent, maybe for admin[1-4]
 CREATE TABLE geoname_adm
 (
     geoname_id integer primary key,
@@ -108,6 +188,8 @@ CREATE TABLE geoname_adm
     admin3_code varchar,
     admin4_code varchar,
     population integer,
+    dem varchar,
+    elevation float,
     modification_date DATE
 );
 CREATE INDEX ix_country_code ON geoname_adm(country_code);
@@ -121,6 +203,11 @@ CREATE TABLE geoname_hierarchy
     child_geoname_id int NOT NULL,
     hierarchy_type varchar not null
 );
+
+INSERT INTO geoname_hierarchy(parent_geoname_id, child_geoname_id, hierarchy_type)
+SELECT parent_geoname_id, child_geoname_id, hierarchy_type
+FROM geoname_hierarchy_vsv;
+
 INSERT INTO geoname_adm
     (
     geoname_id,
@@ -136,13 +223,15 @@ INSERT INTO geoname_adm
     admin3_code,
     admin4_code,
     population,
+    dem,
+    elevation,
     modification_date
     )
 select geonameid as geoname_id,
     [name],
     asciiname as ascii_name,
-    latitude,
-    longitude,
+    CAST(latitude as float) as latitude,
+    CAST(longitude as float) as longitude,
     feature_class,
     feature_code,
     country_code,
@@ -150,9 +239,11 @@ select geonameid as geoname_id,
     admin2_code,
     admin3_code,
     admin4_code,
-    population,
+    CAST(population as numeric) as population,
+    dem,
+    elevation,
     modification_date
-FROM all_countries_vsv
+FROM geoname_all_countries_vsv
 where feature_class = 'A'
     and feature_code in ('ADM1', 'ADM2', 'ADM3', 'ADM4', 'PCLI', 'PCLIX');
 -- optimization: zap asciiname if it is the same as name
@@ -205,98 +296,148 @@ INSERT INTO geoname_alternate_name
     to_date
     )
 select alternateNameId as alternate_name_id,
-    geonameid as geoname_id,
-    isolanguage as iso_language,
+    geonameid       as geoname_id,
+    isolanguage     as iso_language,
     alternate_name,
     isPreferredName as is_preferred_name,
-    isShortName as is_short_name,
-    isColloquial as is_colloquial,
-    isHistoric as is_historic,
-    [from] as from_date,
-    [to] as to_date
+    isShortName     as is_short_name,
+    isColloquial    as is_colloquial,
+    isHistoric      as is_historic,
+    [from]          as from_date,
+    [to]            as to_date
 FROM geoname_alternate_name_vsv as v
     JOIN geoname_adm as a ON (a.geoname_id = v.geonameid)
-WHERE v.isolanguage IN ('en', 'post');
-create index ix_geoname_id on geoname_alternate_name(geoname_id);
+WHERE v.isolanguage IN (
+        'en',-- English
+        'post', -- 'post' for postal codes
+        'abbr', -- abbreviation
+        'iata', 'icao', 'faac' --  'iata','icao' and faac for airport codes
+        );
+CREATE INDEX ix_geoname_id on geoname_alternate_name(geoname_id);
 create index ix_alternate_name on geoname_alternate_name(alternate_name);
 -- spellfix
 -- fts
 
+
+CREATE TABLE geoname_symbol(
+     geoname_id integer NOT NULL references geoname_adm(geoname_id),
+     symbol varchar not null,
+     symbol_type varchar not null,
+     country_code varchar NULL,
+     PRIMARY KEY (geoname_id, symbol, symbol_type)
+    );
+
+
+
+
+WITH SYMS AS (
+select geoname_id,
+       COALESCE(ascii_name, name) as symbol,
+       feature_code as symbol_type,
+       country_code as country_code
+from geoname_adm
+where feature_code IN ('PCLI', 'ADM1', 'ADM2', 'ADM3', 'ADM4')
+UNION ALL
+select geoname_id,
+    CASE feature_code
+        WHEN 'PCLI' THEN country_code
+        WHEN 'ADM1' THEN admin1_code
+        WHEN 'ADM2' THEN admin2_code
+        WHEN 'ADM3' THEN admin3_code
+        WHEN 'ADM4' THEN admin4_code
+        ELSE NULL
+        END as symbol,
+    CASE feature_code
+        WHEN 'PCLI' THEN 'PCLI_CODE'
+        WHEN 'ADM1' THEN 'ADM1_CODE'
+        WHEN 'ADM2' THEN 'ADM2_CODE'
+        WHEN 'ADM3' THEN 'ADM3_CODE'
+        WHEN 'ADM4' THEN 'ADM4_CODE'
+        ELSE NULL
+        END as symbol_type,
+    country_code
+    FROM geoname_adm
+where feature_code IN ('PCLI', 'ADM1', 'ADM2', 'ADM3', 'ADM4')
+)
+INSERT INTO geoname_symbol(geoname_id,symbol, symbol_type, country_code)
+SELECT geoname_id, symbol, symbol_type, country_code
+FROM SYMS
+WHERE SYMS.symbol is not null and SYMS.symbol <> '';
+
+
+ INSERT OR IGNORE INTO geoname_symbol(geoname_id, symbol, symbol_type, country_code)
+ select gan.geoname_id,
+        gan.alternate_name as symbol,
+        CASE gan.iso_language
+            WHEN 'en'
+                THEN gn.feature_code
+            ELSE
+                gan.iso_language
+        END as symbol_type,
+        gn.country_code
+ FROM geoname_alternate_name as gan
+ JOIN geoname_adm as gn
+ ON (gan.geoname_id = gn.geoname_id)
+ WHERE gan.iso_language IN (
+        'en',-- English
+        'post', -- 'post' for postal codes
+        'abbr',
+        'iata', 'icao', 'faac' --  'iata','icao' and 'faac' for airport codes
+        );
+
+CREATE INDEX ix_geoname_symbol ON geoname_symbol(symbol, symbol_type);
+CREATE INDEX ix_geoname_symbol_country_code ON geoname_symbol(symbol_type, country_code);
+
  CREATE VIRTUAL TABLE geoname_fts  USING fts5(name, geoname_id UNINDEXED, feature_code UNINDEXED, country_code UNINDEXED);
 
- insert into geoname_fts(geoname_id, name, feature_code, country_code)
-SELECT geoname_id, COALESCE(ascii_name,name) as name, feature_code, country_code
- FROM geoname_adm;
+insert into geoname_fts(geoname_id, name, feature_code, country_code)
+SELECT geoname_id,
+       symbol as name,
+       symbol_type as feature_code,
+       country_code
+FROM geoname_symbol;
 
 
- insert into geoname_fts(geoname_id, name, feature_code, country_code)
- SELECT DISTINCT geoname_id, admin1_code as name,feature_code, country_code
- FROM geoname_adm
- WHERE admin1_code IS NOT NULL;
-
- insert into geoname_fts(geoname_id, name, feature_code, country_code)
- SELECT DISTINCT geoname_id, admin2_code,feature_code, country_code
- FROM geoname_adm
- WHERE admin2_code IS NOT NULL;
-
-
- insert into geoname_fts(geoname_id, name, feature_code, country_code)
- SELECT DISTINCT geoname_id, admin3_code, feature_code, country_code
- FROM geoname_adm
- WHERE admin3_code IS NOT NULL;
-
- INSERT INTO geoname_fts(geoname_id, name) select geoname_id, alternate_name FROM geoname_alternate_name;
 
  select fts.geoname_id, fts.name, fts.*, g.*
- from geoname_fts as fts 
- JOIN geoname_adm as g 
+ from geoname_fts as fts
+ JOIN geoname_adm as g
  ON (fts.geoname_id=g.geoname_id)
- where fts.name match 'roscommon' 
+ where fts.name match 'roscommon'
  and fts.country_code = 'IE';
 
 
- /*select nums.n, d.*
- FROM nums 
- CROSS JOIN 
- geoname_adm_dictionary as d
- ON (nums.n< 3) 
- WHERE  d.word match 'washington' 
- and d.langid=nums.n;
+create table geoname_symbol_type_spellfix_langid  (
+    symbol_type PRIMARY KEY,
+    langid int not null
+);
 
-create virtual table geoname_fts4 using fts4
-(geoname_id int, name text, country_code text);
-insert into geoname_fts4
-    (geoname_id, name, country_code)
-SELECT geoname_id,
-    name,
-    country_code
-FROM geoname_adm;
+WITH AGG AS (
+    select symbol_type, COUNT(*) as n
+    FROM geoname_symbol
+    group by  symbol_type
+    ), RNK AS (
+    SELECT symbol_type,
+    ROW_NUMBER() OVER (ORDER BY n DESC) as rn
+    FROM AGG
+    )
+INSERT INTO geoname_symbol_type_spellfix_langid(symbol_type, langid)
+select symbol_type, rn
+FROM RNK;
 
-insert into geoname_fts4
-    (geoname_id, name, country_code)
-SELECT a.geoname_id,
-    gan.alternate_name,
-    a.country_code
-FROM geoname_alternate_name as gan
-    JOIN geoname_adm as a ON (gan.geoname_id = a.geoname_id);
 
-select *
-FROM geoname_fts4 as fts
-    JOIN geoname_adm as a
-    ON (fts.geoname_id = a.geoname_id)
-where fts.name
-match 'sligo'
-    and a.country_code = 'IE';
+CREATE VIRTUAL TABLE geoname_symbol_spellfix USING spellfix1;
 
-*/
+INSERT INTO geoname_symbol_spellfix(word, langid)
+select sym.symbol as word,
+       lang.langid
+FROM geoname_symbol as sym
+LEFT OUTER JOIN geoname_symbol_type_spellfix_langid as lang
+ ON (sym.symbol_type = lang.symbol_type);
+
+
 
 CREATE VIRTUAL TABLE geoname_fts_vocab USING fts5vocab(geoname_fts, row);
-
-CREATE VIRTUAL TABLE geoname_fts_spellfix USING spellfix1;
-insert into geoname_fts_spellfix
-    (word)
-select distinct term
-from geoname_fts_vocab;
 
 WITH
     T
@@ -337,20 +478,22 @@ match T.word and a.country_code = 'AT'
     )
 SELECT *
 FROM T1;
+
+select * FROM geoname_adm where feature_code = 'ADM2' and country_code = 'US' and admin1_code = 'MA';
+
+select gpc.*, adm1.name as admin1_name, adm1.admin1_code, adm2.name as admin2_name, adm2.admin2_code
+FROM geoname_postal_code as gpc
+LEFT OUTER JOIN geoname_adm as adm1
+ON (gpc.country_code = adm1.country_code and adm1.feature_code = 'ADM1' and gpc.admin1_code = adm1.admin1_code) LEFT OUTER JOIN geoname_adm as adm2
+ON (adm2.feature_code = 'ADM2'
+and adm1.admin1_code = adm2.admin1_code
+and adm2.admin2_code=gpc.admin2_code
+and adm2.country_code = gpc.country_code)
+ where gpc.postal_code = '02458';
+
 VACUUM;
 
 -- now that the geonames data is in place, it is time to bring in the spatial boundaries
 -- in geopoly format from sources such as geonames premium or from geoBoundaries.
 -- if we are given a hierarchical toponym, we should be able to consistently resolve each level
 -- of the the hierarchy and confirm that each child is spatially contained within its parent.
-/*
- select  name,
- country_code,
- admin1_code,
- admin2_code,
- latitude,
- longitude 
- from geoname_adm 
- where feature_code = 'ADM2' 
- and country_code IN ('IE', 'GB');
- */
